@@ -12,6 +12,9 @@ import java.util.Set;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.ApplicationListener;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -25,15 +28,16 @@ import com.google.gson.JsonObject;
 import com.google.gson.stream.JsonReader;
 
 /**
- * Minimal version of country flags micro service.
- * Loads the data from data file into memory on start
+ * Minimal version of country flags micro service. Loads the data from data file
+ * into memory on start
  * 
  * @author Kishan Thomas (kishan.thomas@gmail.com)
  *
  */
 @RestController
 @EnableAutoConfiguration
-public class App {
+@SpringBootApplication
+public class App implements ApplicationListener<ApplicationReadyEvent> {
 
 	private class Continent {
 		private String continent;
@@ -50,14 +54,21 @@ public class App {
 	private static Map<String, String> countryFlagMap = new HashMap<>();
 	private static Map<String, Map<String, String>> continentCountryFlagMap = new HashMap<>();
 	private static Gson gson = new Gson();
+	private static String datafile = "continents.txt"; // default file used for testing
 
 	public static void main(String[] args) throws IOException {
 		if (args.length < 1) {
 			System.out.println("Usage: java App properties.xml");
 			System.exit(0);
 		}
-		initData(args[0]);
+		datafile = args[0];
 		SpringApplication.run(App.class, args);
+	}
+
+	private String buildJson(String key, String value) {
+		JsonObject json = new JsonObject();
+		json.addProperty(key, value);
+		return gson.toJson(json);
 	}
 
 	private Set<String> getContinents() {
@@ -90,7 +101,7 @@ public class App {
 				return ResponseEntity.ok(gson.toJson(getFlagsByContinent(id))); // all flags for the continent
 			}
 		}
-		return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(buildJson("error", "Unknown country or continent")); 
+		return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(buildJson("error", "Unknown country or continent"));
 	}
 
 	private Map<String, Map<String, String>> getFlagsByContinent() {
@@ -101,19 +112,15 @@ public class App {
 		return continentCountryFlagMap.get(continent);
 	}
 
-	private String buildJson(String key, String value) {
-		JsonObject json = new JsonObject();
-		json.addProperty(key, value);
-		return gson.toJson(json);
-	}
-
 	/**
 	 * Loads the JSON data using GSON reader and the entity classes
 	 * 
-	 * @param dataFile The JSON data file to read data from.
-	 * @throws IOException If there is any error reading the data file.
+	 * @param dataFile
+	 *            The JSON data file to read data from.
+	 * @throws IOException
+	 *             If there is any error reading the data file.
 	 */
-	private static void initData(String dataFile) throws IOException {
+	private void initData(String dataFile) throws IOException {
 		logger.info("Initializing the store using data from {} ...", dataFile);
 		try (JsonReader reader = new JsonReader(new InputStreamReader(new FileInputStream(dataFile), "UTF-8"))) {
 			Continent[] continents = gson.fromJson(reader, Continent[].class);
@@ -127,6 +134,15 @@ public class App {
 					logger.debug("Initalizing data for {} {} {}", continent.continent, country.name, country.flag);
 				});
 			}
+		}
+	}
+
+	@Override
+	public void onApplicationEvent(final ApplicationReadyEvent event) {
+		try {
+			initData(datafile);
+		} catch (IOException e) {
+			throw new RuntimeException("Data loading failed", e);
 		}
 	}
 
